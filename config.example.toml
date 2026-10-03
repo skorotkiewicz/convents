@@ -1,0 +1,34 @@
+# Each seat can point to a different OpenAI-compatible provider and model.
+# This runnable demo uses one local model with three different roles.
+# For authenticated providers, set api_key_env = "YOUR_API_KEY_VARIABLE".
+
+[debate]
+max_rounds = 2 # Initial proposals, then peer critique. Raise for further debate.
+max_output_tokens = 700
+timeout_ms = 120000
+
+[decision]
+url = "http://192.168.0.124:8889/v1/systemone" # Exact endpoint, not a base URL.
+model = "/home/mod/Laya-BF16.gguf"
+readiness_threshold = 0.8
+
+[[llms]]
+name = "Builder"
+base_url = "http://192.168.0.124:8888/v1"
+model = "/models/gemma4/E2B/gemma-4-E2B-it-Q4_K_M.gguf"
+role = "Propose the simplest practical solution. Focus on implementation and feasibility."
+extra_body = { chat_template_kwargs = { enable_thinking = false } }
+
+[[llms]]
+name = "Skeptic"
+base_url = "http://192.168.0.124:8888/v1"
+model = "/models/gemma4/E2B/gemma-4-E2B-it-Q4_K_M.gguf"
+role = "Challenge assumptions, find failure cases, and propose concrete corrections."
+extra_body = { chat_template_kwargs = { enable_thinking = false } }
+
+[[llms]]
+name = "Reviewer"
+base_url = "http://192.168.0.124:8888/v1"
+model = "/models/gemma4/E2B/gemma-4-E2B-it-Q4_K_M.gguf"
+role = "Check accuracy, tradeoffs, and whether the solution actually answers the question."
+extra_body = { chat_template_kwargs = { enable_thinking = false } }
