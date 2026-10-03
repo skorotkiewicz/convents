@@ -32,7 +32,7 @@ export function mountTui(renderer: CliRenderer, config: Config) {
     const history = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 0, stickyScroll: true, stickyStart: "bottom" });
     box.add(history);
     board.add(box);
-    return [llm.name, { box, label, history, current: undefined as TextRenderable | undefined, heading: undefined as TextRenderable | undefined, state: "idle" }] as const;
+    return [llm.name, { box, label, history, current: undefined as TextRenderable | undefined, buffer: "", state: "idle" }] as const;
   }));
   const jury = new ScrollBoxRenderable(renderer, { title: " Laya / decision log ", border: true, borderColor: colors.border, height: 4, flexShrink: 0, stickyScroll: true, stickyStart: "bottom" });
   root.add(jury);
@@ -72,6 +72,8 @@ export function mountTui(renderer: CliRenderer, config: Config) {
     const seat = seats.get(event.name)!;
     if (event.type === "start") {
       seat.state = event.phase;
+      seat.buffer = "";
+      status.fg = colors.muted;
       seat.label.content = `R${event.round} / ${event.phase} / streaming`;
       status.content = event.phase === "final" ? `${event.name} is synthesizing the final answer...` : `Round ${event.round}/${config.debate.max_rounds}: ${event.phase === "proposal" ? "independent proposals" : "peer critique"}`;
       if (event.phase === "final") {
@@ -79,14 +81,14 @@ export function mountTui(renderer: CliRenderer, config: Config) {
         final.title = ` Final answer / ${clean(event.name)} / streaming `;
         seat.current = finalText;
       } else {
-        seat.heading = new TextRenderable(renderer, { content: `Round ${event.round} / ${event.phase}`, fg: colors.accent, flexShrink: 0 });
-        seat.history.add(seat.heading);
+        seat.history.add(new TextRenderable(renderer, { content: `Round ${event.round} / ${event.phase}`, fg: colors.accent, flexShrink: 0 }));
         seat.current = new TextRenderable(renderer, { content: "", fg: colors.text, flexShrink: 0 });
         seat.history.add(seat.current);
       }
       refreshOverview();
     } else if (event.type === "delta" && seat.current) {
-      seat.current.content = String(seat.current.content) + clean(event.text);
+      seat.buffer += clean(event.text);
+      seat.current.content = seat.buffer;
     }
   };
   async function submit(question: string) {
@@ -115,10 +117,11 @@ export function mountTui(renderer: CliRenderer, config: Config) {
       status.fg = approved ? colors.good : colors.accent;
     } catch (error) {
       if (closed) return;
-      status.content = controller.signal.aborted ? "Cancelled. Ask another question." : `Error: ${clean(error instanceof Error ? error.message : String(error))}`;
+      const message = controller.signal.aborted ? "Cancelled. Ask another question." : `Error: ${clean(error instanceof Error ? error.message : String(error))}`;
+      status.content = message;
       status.fg = colors.error;
       final.title = " Final answer / incomplete ";
-      log(String(status.content), colors.error);
+      log(message, colors.error);
     } finally {
       active = undefined;
       if (!closed) {
@@ -131,13 +134,12 @@ export function mountTui(renderer: CliRenderer, config: Config) {
   }
   input.on(InputRenderableEvents.ENTER, (question: string) => { void submit(question); });
   const focusTargets = [input, board, ...[...seats.values()].map(seat => seat.history), jury, final];
-  let focusIndex = 0;
   renderer.keyInput.on("keypress", key => {
     if (key.name === "escape") active?.abort();
     if (key.name === "tab") {
       key.preventDefault();
-      focusIndex = (focusIndex + (key.shift ? -1 : 1) + focusTargets.length) % focusTargets.length;
-      focusTargets[focusIndex]!.focus();
+      const index = focusTargets.findIndex(target => target.focused);
+      focusTargets[(index + (key.shift ? -1 : 1) + focusTargets.length) % focusTargets.length]!.focus();
     }
     if ((key.name === "pageup" || key.name === "pagedown") && input.focused) final.scrollBy(key.name === "pageup" ? -1 : 1, "viewport");
   });

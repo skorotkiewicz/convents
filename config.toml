@@ -5,7 +5,7 @@
 [debate]
 max_rounds = 2 # Initial proposals, then peer critique. Raise for further debate.
 max_output_tokens = 700
- timeout_ms = 120000
+timeout_ms = 120000
 
 [decision]
 url = "http://192.168.0.124:8889/v1/systemone" # Exact endpoint, not a base URL.

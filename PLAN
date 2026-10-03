@@ -1,6 +1,0 @@
-In config.toml add multiple llm provider with different models to setup for openai compatible api,
-use `@ai-sdk/openai-compatible` and `ai`
-with opentui as tui,
-priciple is simple, if user setup eg. 3 llms, then ask somethink, then llms started toghether to argue to come up with best solution for user question, then generate final respond,
-every respond from llm is send to decision model laya, also read from config.toml, for testing use this decision model (http://192.168.0.124:8889/v1/systemone), read and learn `example.md` how to use decision models. for test llm you can use (http://192.168.0.124:8888/v1)
-read opentui skill to design nice tui that also shows how llms thinking about problem togheter
