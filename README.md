@@ -16,6 +16,7 @@ A Bun terminal app where configured LLMs propose solutions concurrently, critiqu
 ![Convents terminal interface showing parallel LLM critiques, Laya ratings, and a final answer](assets/screengrab.png)
 
 ```sh
+cp config.example.toml config.toml
 bun install
 bun run start
 bun run start --ask "How should I back up a small SQLite database?"
