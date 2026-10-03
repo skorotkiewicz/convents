@@ -61,7 +61,7 @@ test("TOML validation rejects invalid boundaries and missing secrets", () => {
     ["max_rounds = 2", "max_rounds = 0"],
     ["max_rounds = 2", "max_rounds = 2.5"],
     ["readiness_threshold = 0.8", "readiness_threshold = 1.5"],
-    ['base_url = "http://192.168.0.124:8888/v1"', 'base_url = "file:///tmp/provider"'],
+    ['base_url = "http://127.0.0.1:8888/v1"', 'base_url = "file:///tmp/provider"'],
     ['name = "Builder"', 'name = ""'],
     ['name = "Builder"', 'api_key_env = "CONVENTS_TEST_MISSING_KEY"\nname = "Builder"'],
   ]) expect(() => parseConfig(source.replace(from!, to!))).toThrow();

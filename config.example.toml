@@ -8,9 +8,15 @@ max_output_tokens = 700
 timeout_ms = 120000
 
 [decision]
-url = "http://192.168.0.124:8889/v1/systemone" # Exact endpoint, not a base URL.
-model = "/home/mod/Laya-BF16.gguf"
+url = "https://openrouter.ai/api/alpha/decisions" # Exact endpoint, not a base URL.
+model = "typesafe/jev-1.13"
+api_key_env = "OPENROUTER_API_KEY"
 readiness_threshold = 0.8
+
+# [decision]
+# url = "http://127.0.0.1:8889/v1/systemone" # Exact endpoint, not a base URL.
+# model = "/home/mod/Laya-BF16.gguf"
+# readiness_threshold = 0.8
 
 [[llms]]
 name = "Builder"
@@ -22,7 +28,7 @@ extra_body = { chat_template_kwargs = { enable_thinking = false } }
 
 [[llms]]
 name = "Skeptic"
-base_url = "http://192.168.0.124:8888/v1"
+base_url = "http://127.0.0.1:8888/v1"
 model = "gemma-4-E2B-it"
 role = "Challenge assumptions, find failure cases, and propose concrete corrections."
 extra_body = { chat_template_kwargs = { enable_thinking = false } }

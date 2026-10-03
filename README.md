@@ -27,7 +27,7 @@ bun run typecheck
 
 ## Configuration
 
-`config.toml` includes three runnable seats at `http://192.168.0.124:8888/v1` and the Laya decision endpoint at `http://192.168.0.124:8889/v1/systemone`. The demo uses the **same local model with different roles**, not three independent models. Replace each seat's `base_url` and `model` to use different providers or models. Check model IDs with `GET /v1/models` on your servers.
+`config.toml` includes three runnable seats at `http://127.0.0.1:8888/v1` and the Laya decision endpoint at `http://127.0.0.1:8889/v1/systemone`. The demo uses the **same local model with different roles**, not three independent models. Replace each seat's `base_url` and `model` to use different providers or models. Check model IDs with `GET /v1/models` on your servers.
 
 ```toml
 [[llms]]
