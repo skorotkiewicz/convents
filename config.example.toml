@@ -14,21 +14,23 @@ readiness_threshold = 0.8
 
 [[llms]]
 name = "Builder"
-base_url = "http://192.168.0.124:8888/v1"
-model = "/models/gemma4/E2B/gemma-4-E2B-it-Q4_K_M.gguf"
+base_url = "https://openrouter.ai/api/v1"
+model = "poolside/laguna-s-2.1:free"
 role = "Propose the simplest practical solution. Focus on implementation and feasibility."
+api_key_env = "OPENROUTER_API_KEY"
 extra_body = { chat_template_kwargs = { enable_thinking = false } }
 
 [[llms]]
 name = "Skeptic"
 base_url = "http://192.168.0.124:8888/v1"
-model = "/models/gemma4/E2B/gemma-4-E2B-it-Q4_K_M.gguf"
+model = "gemma-4-E2B-it"
 role = "Challenge assumptions, find failure cases, and propose concrete corrections."
 extra_body = { chat_template_kwargs = { enable_thinking = false } }
 
 [[llms]]
 name = "Reviewer"
-base_url = "http://192.168.0.124:8888/v1"
-model = "/models/gemma4/E2B/gemma-4-E2B-it-Q4_K_M.gguf"
+base_url = "https://openrouter.ai/api/v1"
+model = "nvidia/nemotron-3-ultra-550b-a55b:free"
 role = "Check accuracy, tradeoffs, and whether the solution actually answers the question."
+api_key_env = "OPENROUTER_API_KEY"
 extra_body = { chat_template_kwargs = { enable_thinking = false } }
