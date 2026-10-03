@@ -1,6 +1,19 @@
-# Convents
+<p align="center">
+  <img src="assets/logo.svg" width="112" height="112" alt="Convents logo: three voices converge into one terminal answer">
+</p>
+
+<h1 align="center">Convents</h1>
+
+<p align="center">
+  <a href="https://bun.sh"><img src="https://img.shields.io/badge/Bun-runtime-e8e5d9?style=flat-square&amp;logo=bun&amp;logoColor=e8e5d9&amp;labelColor=202622" alt="Bun runtime"></a>
+  <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-strict-dbb66f?style=flat-square&amp;logo=typescript&amp;logoColor=e8e5d9&amp;labelColor=202622" alt="Strict TypeScript"></a>
+  <a href="https://github.com/anomalyco/opentui"><img src="https://img.shields.io/badge/OpenTUI-terminal-88baa0?style=flat-square&amp;labelColor=202622" alt="OpenTUI terminal interface"></a>
+  <a href="https://ai-sdk.dev"><img src="https://img.shields.io/badge/AI_SDK-multi--model-a6b1a8?style=flat-square&amp;labelColor=202622" alt="Multi-model AI SDK"></a>
+</p>
 
 A Bun terminal app where configured LLMs propose solutions concurrently, critique each other's answers, and let Laya select a candidate to synthesize a final response.
+
+![Convents terminal interface showing parallel LLM critiques, Laya ratings, and a final answer](assets/screengrab.png)
 
 ```sh
 bun install
