@@ -1,4 +1,4 @@
-import { BoxRenderable, InputRenderable, InputRenderableEvents, ScrollBoxRenderable, TextAttributes, TextRenderable, type CliRenderer } from "@opentui/core";
+import { BoxRenderable, createClipboard, createHostClipboard, createRendererClipboardAdapter, InputRenderable, InputRenderableEvents, MouseButton, ScrollBoxRenderable, TextAttributes, TextRenderable, type ClipboardService, type CliRenderer } from "@opentui/core";
 import type { Config } from "./config";
 import { runDebate, type ConversationTurn, type DebateEvent, type Reply } from "./debate";
 
@@ -41,7 +41,7 @@ export function mountTui(renderer: CliRenderer, config: Config) {
   let finalText = new TextRenderable(renderer, { content: "The strongest candidate will synthesize the debate here.", fg: colors.text, flexShrink: 0 });
   final.add(finalText);
   root.add(final);
-  root.add(new TextRenderable(renderer, { content: " Enter ask | /new reset | Tab focus | PgUp/PgDn scroll | Esc cancel | Ctrl+C quit", fg: colors.muted, height: 1, flexShrink: 0 }));
+  root.add(new TextRenderable(renderer, { content: " Enter ask/copy | final header copy | /new | Tab | PgUp/PgDn | Esc cancel | Ctrl+C quit", fg: colors.muted, height: 1, flexShrink: 0 }));
   const resize = () => {
     const columns = Math.min(config.llms.length, Math.max(1, Math.floor(renderer.width / 34)));
     for (const seat of seats.values()) {
@@ -55,6 +55,35 @@ export function mountTui(renderer: CliRenderer, config: Config) {
   let closed = false;
   // ponytail: full history stays in memory; use /new at context limits, add summarization if long sessions need it.
   const conversation: ConversationTurn[] = [];
+  let clipboard: ClipboardService | undefined;
+  const clipboardController = new AbortController();
+  async function copyFinalAnswer() {
+    const answer = conversation.at(-1)?.answer;
+    if (!answer?.trim()) {
+      status.content = "No completed final answer to copy yet.";
+      status.fg = colors.accent;
+      return;
+    }
+    try {
+      clipboard ??= createClipboard({ host: createHostClipboard(), terminal: createRendererClipboardAdapter(renderer) });
+      const result = await clipboard.writeText(clean(answer), { destination: "best-available", signal: clipboardController.signal });
+      if (closed) return;
+      const written = result.host.status === "written";
+      const sent = result.terminal.status === "attempted";
+      status.content = written ? "Final answer copied." : sent ? "Final answer sent to terminal clipboard." : "Clipboard unavailable. Check system permissions or enable terminal OSC 52 copying.";
+      status.fg = written || sent ? colors.good : colors.error;
+    } catch (error) {
+      if (closed) return;
+      status.content = `Copy failed: ${clean(error instanceof Error ? error.message : String(error))}`;
+      status.fg = colors.error;
+    }
+  }
+  final.onMouseDown = event => {
+    if (event.button !== MouseButton.LEFT || event.y !== final.y) return;
+    event.preventDefault();
+    final.focus();
+    void copyFinalAnswer();
+  };
   const log = (content: string, fg = colors.muted) => jury.add(new TextRenderable(renderer, { content: clean(content), fg, flexShrink: 0 }));
   const refreshOverview = () => { overview.content = [...seats].map(([name, seat]) => `${clean(name)}: ${seat.state}`).join(" | "); };
   const update = (event: DebateEvent) => {
@@ -156,6 +185,10 @@ export function mountTui(renderer: CliRenderer, config: Config) {
   input.on(InputRenderableEvents.ENTER, (question: string) => { void submit(question); });
   const focusTargets = [input, board, ...[...seats.values()].map(seat => seat.history), jury, final];
   renderer.keyInput.on("keypress", key => {
+    if (key.name === "return" && final.focused) {
+      key.preventDefault();
+      void copyFinalAnswer();
+    }
     if (key.name === "escape") active?.abort();
     if (key.name === "tab") {
       key.preventDefault();
@@ -167,6 +200,8 @@ export function mountTui(renderer: CliRenderer, config: Config) {
   renderer.on("destroy", () => {
     closed = true;
     active?.abort();
+    clipboardController.abort();
+    void clipboard?.dispose().catch(error => console.error("Clipboard cleanup failed:", error));
     renderer.off("resize", resize);
   });
   input.focus();

@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { createTestRenderer } from "@opentui/core/testing";
+import { expect, spyOn, test } from "bun:test";
+import { createTestRenderer, setRendererCapabilities } from "@opentui/core/testing";
 import { parseConfig } from "./config";
 import { runDebate, type DebateEvent } from "./debate";
 import { mountTui } from "./tui";
@@ -248,6 +248,70 @@ test("failed and cancelled turns do not pollute conversation context", async () 
     expect(setup.captureCharFrame()).toContain("Turn 2 saved");
   } finally {
     setup.renderer.destroy();
+    mock.server.stop(true);
+  }
+});
+
+test("final header and Enter copy the latest completed answer without changing body selection", async () => {
+  const mock = mockServers();
+  const setup = await createTestRenderer({ width: 120, height: 36 });
+  // Use the remote terminal path so this test never writes the real host clipboard.
+  setRendererCapabilities(setup.renderer, { remote: true, osc52_support: "supported" });
+  const copy = spyOn(setup.renderer, "copyToClipboardOSC52").mockReturnValue(true);
+  async function clickHeader(button: 0 | 2 = 0) {
+    await setup.renderOnce();
+    const y = setup.captureCharFrame().split("\n").findIndex(line => line.includes("┌") && line.includes("Final answer"));
+    expect(y).toBeGreaterThanOrEqual(0);
+    await setup.mockMouse.click(5, y, button);
+    await Bun.sleep(0);
+    await setup.renderOnce();
+    return y;
+  }
+  try {
+    const app = mountTui(setup.renderer, mock.config);
+    await clickHeader();
+    expect(copy).not.toHaveBeenCalled();
+    expect(setup.captureCharFrame()).toContain("No completed final answer");
+
+    await app.submit("How should I store data?");
+    const y = await clickHeader();
+    const answer = "Reviewer final: use SQLite with verified backups.";
+    expect(copy.mock.calls.map(call => call[0])).toEqual([answer]);
+    expect(setup.captureCharFrame()).toContain("Final answer sent to terminal clipboard");
+    await clickHeader(2);
+    expect(copy).toHaveBeenCalledTimes(1);
+
+    await setup.mockMouse.drag(2, y + 2, 10, y + 2);
+    const selection = setup.renderer.getSelection()?.getSelectedText();
+    expect(selection).toBeTruthy();
+    expect(copy).toHaveBeenCalledTimes(1);
+    await clickHeader();
+    expect(copy).toHaveBeenCalledTimes(2);
+    expect(setup.renderer.getSelection()?.getSelectedText()).toBe(selection);
+    setup.mockInput.pressEnter();
+    await Bun.sleep(0);
+    expect(copy).toHaveBeenCalledTimes(3);
+    expect(copy.mock.calls.at(-1)![0]).toBe(answer);
+
+    mock.config.llms[2]!.model = "LatestReviewer";
+    await app.submit("Make that shorter.");
+    await clickHeader();
+    expect(copy.mock.calls.at(-1)![0]).toBe("LatestReviewer final: use SQLite with verified backups.");
+    copy.mockReturnValue(false);
+    await clickHeader();
+    expect(setup.captureCharFrame()).toContain("Clipboard unavailable");
+    copy.mockImplementation(() => { throw new Error("clipboard test failure"); });
+    await clickHeader();
+    expect(setup.captureCharFrame()).toContain("Copy failed: clipboard test failure");
+
+    await app.submit("/new");
+    const count = copy.mock.calls.length;
+    await clickHeader();
+    expect(copy).toHaveBeenCalledTimes(count);
+    expect(setup.captureCharFrame()).toContain("No completed final answer");
+  } finally {
+    setup.renderer.destroy();
+    copy.mockRestore();
     mock.server.stop(true);
   }
 });
