@@ -32,7 +32,8 @@ export function mountTui(renderer: CliRenderer, config: Config) {
     const history = new ScrollBoxRenderable(renderer, { flexGrow: 1, minHeight: 0, stickyScroll: true, stickyStart: "bottom" });
     box.add(history);
     board.add(box);
-    return [llm.name, { box, label, history, current: undefined as TextRenderable | undefined, buffer: "", state: "idle" }] as const;
+    const seat = { box, label, history, current: undefined as TextRenderable | undefined, buffer: "", state: "idle" };
+    return [llm.name, seat] as const;
   }));
   const jury = new ScrollBoxRenderable(renderer, { title: " Laya / decision log ", border: true, borderColor: colors.border, height: 4, flexShrink: 0, stickyScroll: true, stickyStart: "bottom" });
   root.add(jury);

@@ -74,6 +74,7 @@ async function respond(config: Config, llm: Participant, question: string, round
   let finished = false;
   let truncated = false;
   for await (const part of result.fullStream) {
+    signal.throwIfAborted();
     if (part.type === "error") throw part.error;
     if (part.type === "abort") throw new Error("LLM request cancelled or timed out");
     if (part.type === "text-delta") {
@@ -90,6 +91,7 @@ async function respond(config: Config, llm: Participant, question: string, round
   if (!finished || !text.trim()) throw new Error(`${llm.name} returned no complete text response; check the token limit and provider settings`);
   const reply = { name: llm.name, round, phase, text, truncated };
   const verdict = await judge(config, question, reply, signal);
+  signal.throwIfAborted();
   const judged = { ...reply, verdict };
   emit({ type: "judged", reply: judged });
   return judged;
