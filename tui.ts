@@ -1,6 +1,6 @@
 import { BoxRenderable, InputRenderable, InputRenderableEvents, ScrollBoxRenderable, TextAttributes, TextRenderable, type CliRenderer } from "@opentui/core";
 import type { Config } from "./config";
-import { runDebate, type DebateEvent, type Reply } from "./debate";
+import { runDebate, type ConversationTurn, type DebateEvent, type Reply } from "./debate";
 
 const colors = { bg: "#171b19", panel: "#202622", text: "#e8e5d9", muted: "#a6b1a8", border: "#4a594f", accent: "#dbb66f", good: "#88baa0", error: "#e49982" };
 const clean = (text: string) => text.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
@@ -38,10 +38,10 @@ export function mountTui(renderer: CliRenderer, config: Config) {
   const jury = new ScrollBoxRenderable(renderer, { title: " Laya / decision log ", border: true, borderColor: colors.border, height: 4, flexShrink: 0, stickyScroll: true, stickyStart: "bottom" });
   root.add(jury);
   const final = new ScrollBoxRenderable(renderer, { title: " Final answer ", border: true, borderColor: colors.good, flexGrow: 1, flexBasis: 0, minHeight: 4, stickyScroll: true, stickyStart: "bottom" });
-  const finalText = new TextRenderable(renderer, { content: "The strongest candidate will synthesize the debate here.", fg: colors.text, flexShrink: 0 });
+  let finalText = new TextRenderable(renderer, { content: "The strongest candidate will synthesize the debate here.", fg: colors.text, flexShrink: 0 });
   final.add(finalText);
   root.add(final);
-  root.add(new TextRenderable(renderer, { content: " Enter ask | Tab focus panel | PgUp/PgDn scroll | Esc cancel | Ctrl+C quit", fg: colors.muted, height: 1, flexShrink: 0 }));
+  root.add(new TextRenderable(renderer, { content: " Enter ask | /new reset | Tab focus | PgUp/PgDn scroll | Esc cancel | Ctrl+C quit", fg: colors.muted, height: 1, flexShrink: 0 }));
   const resize = () => {
     const columns = Math.min(config.llms.length, Math.max(1, Math.floor(renderer.width / 34)));
     for (const seat of seats.values()) {
@@ -53,6 +53,8 @@ export function mountTui(renderer: CliRenderer, config: Config) {
   renderer.on("resize", resize);
   let active: AbortController | undefined;
   let closed = false;
+  // ponytail: full history stays in memory; use /new at context limits, add summarization if long sessions need it.
+  const conversation: ConversationTurn[] = [];
   const log = (content: string, fg = colors.muted) => jury.add(new TextRenderable(renderer, { content: clean(content), fg, flexShrink: 0 }));
   const refreshOverview = () => { overview.content = [...seats].map(([name, seat]) => `${clean(name)}: ${seat.state}`).join(" | "); };
   const update = (event: DebateEvent) => {
@@ -94,27 +96,44 @@ export function mountTui(renderer: CliRenderer, config: Config) {
   };
   async function submit(question: string) {
     if (!question.trim() || active || closed) return;
-    const controller = new AbortController();
-    active = controller;
-    prompt.title = ` Question / ${clean(question).slice(0, 80)} `;
     input.value = "";
-    input.placeholder = "Debating... Esc cancels. Your next question can wait here.";
-    finalText.content = "Waiting for proposals and peer critique...";
-    final.title = " Final answer / pending ";
     for (const seat of seats.values()) {
       for (const child of seat.history.getChildren()) child.destroyRecursively();
       seat.current = undefined;
-      seat.state = "waiting";
-      seat.label.content = "waiting";
+      seat.state = "idle";
+      seat.label.content = "idle";
     }
     for (const child of jury.getChildren()) child.destroyRecursively();
     refreshOverview();
+    if (question.trim() === "/new") {
+      conversation.length = 0;
+      for (const child of final.getChildren()) child.destroyRecursively();
+      finalText = new TextRenderable(renderer, { content: "The strongest candidate will synthesize the debate here.", fg: colors.text, flexShrink: 0 });
+      final.add(finalText);
+      final.title = " Final answer ";
+      prompt.title = " Question ";
+      status.content = "New conversation. Previous context cleared.";
+      status.fg = colors.good;
+      input.placeholder = "Ask a question and press Enter...";
+      input.focus();
+      return;
+    }
+    const controller = new AbortController();
+    active = controller;
+    prompt.title = ` Question / turn ${conversation.length + 1} / ${clean(question).slice(0, 80)} `;
+    input.placeholder = "Debating... Esc cancels. Your next question can wait here.";
+    if (!conversation.length) for (const child of final.getChildren()) child.destroyRecursively();
+    final.add(new TextRenderable(renderer, { content: `You / turn ${conversation.length + 1}: ${clean(question)}`, fg: colors.accent, flexShrink: 0 }));
+    finalText = new TextRenderable(renderer, { content: "Waiting for proposals and peer critique...", fg: colors.text, flexShrink: 0 });
+    final.add(finalText);
+    final.title = " Final answer / pending ";
     try {
-      const reply = await runDebate(config, question, update, controller.signal);
-      if (closed) return;
+      const reply = await runDebate(config, question, update, controller.signal, conversation);
+      if (closed || controller.signal.aborted) return;
+      conversation.push({ question, answer: reply.text });
       const approved = !reply.truncated && reply.verdict.ready >= config.decision.readiness_threshold;
       final.title = approved ? " Final answer / Laya rated ready " : " Final answer / review advised ";
-      status.content = approved ? "Done. Laya rated the answer ready, not independently verified." : "Done. Laya readiness is low or output was truncated. Review the answer.";
+      status.content = `Turn ${conversation.length} saved. ${approved ? "Laya rated ready, not independently verified." : "Low readiness or truncated output: review advised."} Ask a follow-up or /new.`;
       status.fg = approved ? colors.good : colors.accent;
     } catch (error) {
       if (closed) return;
@@ -122,13 +141,14 @@ export function mountTui(renderer: CliRenderer, config: Config) {
       status.content = message;
       status.fg = colors.error;
       final.title = " Final answer / incomplete ";
+      final.add(new TextRenderable(renderer, { content: `Not saved to conversation: ${message}`, fg: colors.error, flexShrink: 0 }));
       log(message, colors.error);
     } finally {
       active = undefined;
       if (!closed) {
         for (const seat of seats.values()) if (seat.state !== "judged") seat.state = "stopped";
         refreshOverview();
-        input.placeholder = "Ask another question and press Enter...";
+        input.placeholder = "Ask a follow-up, or /new for a fresh conversation...";
         input.focus();
       }
     }

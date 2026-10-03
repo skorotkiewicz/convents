@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { parseConfig, type Config } from "./config";
+import { parseConfig } from "./config";
 import { runDebate, type DebateEvent } from "./debate";
 import { mountTui } from "./tui";
 
@@ -123,11 +123,10 @@ test("cancellation and timeout abort in-flight requests", async () => {
     const controller = new AbortController();
     try {
       if (timeout) mock.config.debate.timeout_ms = 30;
-      const running = runDebate(mock.config, "A question", undefined, controller.signal);
-      const rejection = expect(running).rejects.toThrow();
+      const outcome = runDebate(mock.config, "A question", undefined, controller.signal).then(reply => reply, error => error);
       await mock.started;
       if (!timeout) controller.abort();
-      await rejection;
+      expect(await outcome).toBeInstanceOf(Error);
       expect(mock.decisions).toHaveLength(0);
     } finally { mock.server.stop(true); }
   }
@@ -161,6 +160,92 @@ test("OpenTUI streams complete text, supports keyboard input, and resizes", asyn
     setup.resize(60, 24);
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("CONVENTS");
+  } finally {
+    setup.renderer.destroy();
+    mock.server.stop(true);
+  }
+});
+
+test("conversation context reaches every LLM and Laya, and /new clears it without a request", async () => {
+  const mock = mockServers();
+  const setup = await createTestRenderer({ width: 120, height: 36 });
+  try {
+    const app = mountTui(setup.renderer, mock.config);
+    await app.submit("How should I store my data?");
+    const first = { question: "How should I store my data?", answer: "Reviewer final: use SQLite with verified backups." };
+    expect(mock.chats.every(chat => chat.messages.length === 2)).toBe(true);
+    expect(mock.decisions.every(request => JSON.parse(request.state).conversation.length === 0)).toBe(true);
+
+    await app.submit("Make that shorter.");
+    expect(mock.chats).toHaveLength(14);
+    expect(mock.decisions).toHaveLength(18);
+    for (const chat of mock.chats.slice(7)) {
+      expect(chat.messages.slice(1, -1)).toEqual([
+        { role: "user", content: first.question },
+        { role: "assistant", content: first.answer },
+      ]);
+      expect(chat.messages.at(-1)!.content).toContain("Make that shorter.");
+    }
+    for (const request of mock.decisions.slice(9)) expect(JSON.parse(request.state).conversation).toEqual([first]);
+    await setup.renderOnce();
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Turn 2 saved");
+    expect(frame).toContain(first.question);
+    expect(frame).toContain("Make that shorter.");
+
+    await setup.mockInput.typeText("/new");
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Previous context cleared");
+    expect(setup.captureCharFrame()).not.toContain(first.question);
+    expect(mock.chats).toHaveLength(14);
+    expect(mock.decisions).toHaveLength(18);
+    expect(app.input.value).toBe("");
+
+    await app.submit("A different subject.");
+    expect(mock.chats.slice(14).every(chat => chat.messages.length === 2)).toBe(true);
+    expect(mock.decisions.slice(18).every(request => JSON.parse(request.state).conversation.length === 0)).toBe(true);
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Turn 1 saved");
+  } finally {
+    setup.renderer.destroy();
+    mock.server.stop(true);
+  }
+});
+
+test("failed and cancelled turns do not pollute conversation context", async () => {
+  const options = { badJudge: false, delay: 0 };
+  const mock = mockServers(options);
+  const setup = await createTestRenderer({ width: 120, height: 36 });
+  try {
+    const app = mountTui(setup.renderer, mock.config);
+    await app.submit("The completed question.");
+    options.badJudge = true;
+    await app.submit("The failed question.");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Not saved to conversation");
+    options.badJudge = false;
+    options.delay = 150;
+    const cancelled = app.submit("The cancelled question.");
+    setup.mockInput.pressEscape();
+    await cancelled;
+    options.delay = 0;
+    const startChats = mock.chats.length;
+    const startDecisions = mock.decisions.length;
+    await app.submit("Continue the completed question.");
+    for (const chat of mock.chats.slice(startChats)) {
+      expect(chat.messages.slice(1, -1)).toEqual([
+        { role: "user", content: "The completed question." },
+        { role: "assistant", content: "Reviewer final: use SQLite with verified backups." },
+      ]);
+    }
+    for (const request of mock.decisions.slice(startDecisions)) {
+      expect(JSON.parse(request.state).conversation).toEqual([
+        { question: "The completed question.", answer: "Reviewer final: use SQLite with verified backups." },
+      ]);
+    }
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Turn 2 saved");
   } finally {
     setup.renderer.destroy();
     mock.server.stop(true);
