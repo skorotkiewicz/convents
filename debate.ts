@@ -92,6 +92,7 @@ async function respond(config: Config, llm: Participant, question: string, round
     abortSignal: AbortSignal.any([signal, AbortSignal.timeout(config.debate.timeout_ms)]),
   });
   let text = "";
+  let pendingTools = false;
   let finished = false;
   let truncated = false;
   for await (const part of result.fullStream) {
@@ -101,8 +102,12 @@ async function respond(config: Config, llm: Participant, question: string, round
     if (part.type === "start-step") {
       if (text) emit({ type: "delta", name: llm.name, text: "\n\n" });
       text = "";
+      pendingTools = false;
     }
-    if (part.type === "tool-call") emit({ type: "tool", name: llm.name, tool: part.toolName, status: "running" });
+    if (part.type === "tool-call") {
+      pendingTools = true;
+      emit({ type: "tool", name: llm.name, tool: part.toolName, status: "running" });
+    }
     if (part.type === "tool-result") emit({ type: "tool", name: llm.name, tool: part.toolName, status: "done" });
     if (part.type === "tool-error") emit({ type: "tool", name: llm.name, tool: part.toolName, status: "error", message: String(part.error).slice(0, 300) });
     if (part.type === "text-delta") {
@@ -116,6 +121,7 @@ async function respond(config: Config, llm: Participant, question: string, round
     }
   }
   signal.throwIfAborted();
+  if (pendingTools) throw new Error(`${llm.name} ended on a tool request; tool step limit may have been reached`);
   if (!finished || !text.trim()) throw new Error(`${llm.name} returned no complete text response; check the token limit and provider settings`);
   const reply = { name: llm.name, round, phase, text, truncated };
   const verdict = await judge(config, question, reply, signal, conversation);

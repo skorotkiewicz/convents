@@ -19,7 +19,7 @@ model = "test"
 type ChatRequest = { model: string; messages: { role: string; content: string }[]; max_tokens: number; tools?: { function: { name: string } }[] };
 type DecisionRequest = { model: string; state: string; questions: Record<string, { type: string; criteria?: Record<string, string> }> };
 
-function mockServers(options: { gate?: boolean; badJudge?: boolean; badChoice?: boolean; httpError?: boolean; empty?: boolean; truncateFinal?: boolean; delay?: number; ready?: number; toolCalls?: "once" | "always" } = {}) {
+function mockServers(options: { gate?: boolean; badJudge?: boolean; badChoice?: boolean; httpError?: boolean; empty?: boolean; truncateFinal?: boolean; delay?: number; ready?: number; toolCalls?: "once" | "always"; toolFinishReason?: "stop" | "tool_calls" } = {}) {
   const chats: ChatRequest[] = [];
   const decisions: DecisionRequest[] = [];
   const starts = Promise.withResolvers<void>();
@@ -53,7 +53,7 @@ function mockServers(options: { gate?: boolean; badJudge?: boolean; badChoice?: 
       const text = options.empty ? "" : `${body.model} ${phase}: use SQLite with verified backups.`;
       const chunk = (delta: Record<string, unknown>, finish_reason: string | null = null) => `data: ${JSON.stringify({ id: "mock", object: "chat.completion.chunk", created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
       if (options.toolCalls && body.tools?.some(tool => tool.function.name === "read") && (options.toolCalls === "always" || !body.messages.some(message => message.role === "tool"))) {
-        return new Response(chunk({ role: "assistant", content: "I will inspect the project." }) + chunk({ tool_calls: [{ index: 0, id: `call-${chats.length}`, type: "function", function: { name: "read", arguments: JSON.stringify({ path: "package.json" }) } }] }) + chunk({}, "tool_calls") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+        return new Response(chunk({ role: "assistant", content: "I will inspect the project." }) + chunk({ tool_calls: [{ index: 0, id: `call-${chats.length}`, type: "function", function: { name: "read", arguments: JSON.stringify({ path: "package.json" }) } }] }) + chunk({}, options.toolFinishReason ?? "tool_calls") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
       }
       return new Response(chunk({ role: "assistant", content: text.slice(0, 12) }) + chunk({ content: text.slice(12) }) + chunk({}, options.truncateFinal && phase === "final" ? "length" : "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
     },
@@ -334,25 +334,27 @@ toolLoopTest("LLMs receive only enabled tools, resume after results, and send ev
   const mock = mockServers({ toolCalls: "once" });
   const events: DebateEvent[] = [];
   try {
-    mock.config.llms[0]!.tools = ["read"];
+    mock.config.llms[2]!.tools = ["read"];
     const reply = await runDebate(mock.config, "Inspect the project", event => events.push(event));
-    expect(reply.text).toContain("SQLite");
-    expect(mock.chats).toHaveLength(9);
-    expect(mock.decisions).toHaveLength(11);
-    expect(events.filter(event => event.type === "tool" && event.status === "done")).toHaveLength(2);
-    expect(events.filter(event => event.type === "judged" && event.reply.step === 1)).toHaveLength(2);
+    expect(reply.text).toBe("Reviewer final: use SQLite with verified backups.");
+    expect(mock.chats).toHaveLength(10);
+    expect(mock.decisions).toHaveLength(12);
+    expect(events.filter(event => event.type === "tool" && event.status === "done")).toHaveLength(3);
+    expect(events.filter(event => event.type === "judged" && event.reply.step === 1)).toHaveLength(3);
     for (const chat of mock.chats) {
-      expect(chat.tools?.map(tool => tool.function.name) ?? []).toEqual(chat.model === "Builder" ? ["read"] : []);
+      expect(chat.tools?.map(tool => tool.function.name) ?? []).toEqual(chat.model === "Reviewer" ? ["read"] : []);
     }
     expect(mock.chats.some(chat => chat.messages.some(message => message.role === "tool" && message.content.includes('"name": "convents"')))).toBe(true);
   } finally { mock.server.stop(true); }
 });
 
-toolLoopTest("tool loops stop after five model steps", async () => {
-  const mock = mockServers({ toolCalls: "always" });
-  try {
-    mock.config.llms[0]!.tools = ["read"];
-    await expect(runDebate(mock.config, "Inspect the project")).rejects.toThrow("tool step limit");
-    expect(mock.chats.filter(chat => chat.model === "Builder")).toHaveLength(5);
-  } finally { mock.server.stop(true); }
+toolLoopTest("tool loops stop after five model steps, even with a mislabeled finish reason", async () => {
+  for (const toolFinishReason of ["tool_calls", "stop"] as const) {
+    const mock = mockServers({ toolCalls: "always", toolFinishReason });
+    try {
+      mock.config.llms[0]!.tools = ["read"];
+      await expect(runDebate(mock.config, "Inspect the project")).rejects.toThrow("tool step limit");
+      expect(mock.chats.filter(chat => chat.model === "Builder")).toHaveLength(5);
+    } finally { mock.server.stop(true); }
+  }
 });

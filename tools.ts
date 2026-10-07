@@ -37,6 +37,17 @@ if (isAbsolute(input.path) || input.path.includes("\0")) throw new Error("Use a 
 const path = resolve("/workspace", input.path);
 const inside = value => value === "/workspace" || value.startsWith("/workspace/");
 if (!inside(path)) throw new Error("Path escapes the working directory");
+async function readText(handle, limit) {
+  const buffer = Buffer.alloc(limit + 1);
+  let size = 0;
+  while (size < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, size, buffer.length - size, size);
+    if (!bytesRead) break;
+    size += bytesRead;
+  }
+  if (size > limit) throw new Error("File exceeds " + limit + " bytes");
+  return new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, size));
+}
 if (input.action === "write" || input.action === "edit") {
   if (input.action === "write") await mkdir(dirname(path), { recursive: true });
   const parent = await open(dirname(path), constants.O_RDONLY | constants.O_DIRECTORY);
@@ -52,12 +63,7 @@ if (input.action === "write" || input.action === "edit") {
     if (input.action === "edit") {
       const original = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       let text;
-      try {
-        const buffer = Buffer.alloc(131073);
-        const { bytesRead } = await original.read(buffer, 0, buffer.length, 0);
-        if (bytesRead > 131072) throw new Error("File exceeds 128 KiB edit limit");
-        text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));
-      } finally { await original.close(); }
+      try { text = await readText(original, 131072); } finally { await original.close(); }
       const index = text.indexOf(input.old_text);
       if (index < 0 || text.indexOf(input.old_text, index + 1) !== -1) throw new Error("old_text must match exactly once; file unchanged");
       content = text.replace(input.old_text, () => input.new_text);
@@ -85,10 +91,7 @@ try {
     if (names.length > 1000) console.log("[directory listing limited to 1000 entries]");
   } else {
     if (!stat.isFile()) throw new Error("Only regular files are supported");
-    const buffer = Buffer.alloc(65537);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > 65536) throw new Error("File exceeds 65536 bytes");
-    process.stdout.write(buffer.subarray(0, bytesRead));
+    process.stdout.write(await readText(handle, 65536));
   }
 } finally { await handle.close(); }
 `;
@@ -139,6 +142,7 @@ async function executeSandbox(cwd: string, command: string[], signal: AbortSigna
   signal.throwIfAborted();
   const filter = await open(await (filterPath ??= socketFilter()), "r");
   try {
+    signal.throwIfAborted();
     const child = Bun.spawn([
       bwrap, "--unshare-user", "--unshare-all", "--disable-userns", "--die-with-parent", "--new-session", "--seccomp", "3",
       "--ro-bind", "/usr", "/usr", "--ro-bind-try", "/bin", "/bin", "--ro-bind-try", "/lib", "/lib", "--ro-bind-try", "/lib64", "/lib64",

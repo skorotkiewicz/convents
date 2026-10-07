@@ -58,6 +58,10 @@ sandboxTest("filesystem and bash tools cannot access host paths, symlink targets
   await expect(execute(tools, "edit", { path: "ambiguous.txt", old_text: "aa", new_text: "b" })).rejects.toThrow("exactly once");
   expect(await execute(tools, "read", { path: "ambiguous.txt" })).toBe("aaa");
   expect(await execute(tools, "read", { path: "." })).toContain("nested");
+  await Bun.write(join(root, "large.txt"), "x".repeat(65537));
+  await expect(execute(tools, "read", { path: "large.txt" })).rejects.toThrow("File exceeds");
+  await Bun.write(join(root, "binary.bin"), new Uint8Array([255]));
+  await expect(execute(tools, "read", { path: "binary.bin" })).rejects.toThrow();
   for (const path of ["../private.txt", outside, "escape", "escape-directory/private.txt", "runtime-link/bin/bash"]) {
     await expect(execute(tools, "read", { path })).rejects.toThrow();
     await expect(execute(tools, "write", { path, content: "not allowed" })).rejects.toThrow();
