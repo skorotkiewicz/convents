@@ -30,6 +30,7 @@ try {
           if (event.type === "start") console.error(`[${event.phase} R${event.round}] ${event.name}`);
           if (event.type === "judged") console.error(`[Laya] ${event.reply.name}: quality ${event.reply.verdict.quality.toFixed(1)}/3, ready ${(event.reply.verdict.ready * 100).toFixed(0)}%${event.reply.truncated ? ", truncated" : ""}`);
           if (event.type === "selected") console.error(`[Laya R${event.round}] selected ${event.name}`);
+          if (event.type === "tool") console.error(`[${event.tool} ${event.status}] ${event.name}${event.message ? `: ${event.message}` : ""}`.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ""));
         }, controller.signal);
         console.log(reply.text.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ""));
         if (reply.truncated || reply.verdict.ready < config.decision.readiness_threshold) console.error("Review advised: final answer was truncated or Laya readiness is below threshold.");

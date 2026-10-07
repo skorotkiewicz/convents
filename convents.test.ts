@@ -4,12 +4,22 @@ import { parseConfig } from "./config";
 import { runDebate, type DebateEvent } from "./debate";
 import { mountTui } from "./tui";
 
-const source = await Bun.file("config.toml").text();
+const source = `[debate]
+max_rounds = 2
+[decision]
+url = "http://127.0.0.1:8889/v1/systemone"
+model = "judge"
+readiness_threshold = 0.8
+${["Builder", "Skeptic", "Reviewer"].map(name => `[[llms]]
+name = "${name}"
+base_url = "http://127.0.0.1:8888/v1"
+model = "test"
+`).join("")}`;
 
-type ChatRequest = { model: string; messages: { role: string; content: string }[]; max_tokens: number };
+type ChatRequest = { model: string; messages: { role: string; content: string }[]; max_tokens: number; tools?: { function: { name: string } }[] };
 type DecisionRequest = { model: string; state: string; questions: Record<string, { type: string; criteria?: Record<string, string> }> };
 
-function mockServers(options: { gate?: boolean; badJudge?: boolean; badChoice?: boolean; httpError?: boolean; empty?: boolean; truncateFinal?: boolean; delay?: number; ready?: number } = {}) {
+function mockServers(options: { gate?: boolean; badJudge?: boolean; badChoice?: boolean; httpError?: boolean; empty?: boolean; truncateFinal?: boolean; delay?: number; ready?: number; toolCalls?: "once" | "always" } = {}) {
   const chats: ChatRequest[] = [];
   const decisions: DecisionRequest[] = [];
   const starts = Promise.withResolvers<void>();
@@ -38,10 +48,13 @@ function mockServers(options: { gate?: boolean; badJudge?: boolean; badChoice?: 
         await barrier.promise; // A sequential implementation deadlocks here and fails the test timeout.
       }
       if (options.delay) await Bun.sleep(options.delay);
-      const prompt = body.messages.at(-1)!.content;
+      const prompt = body.messages.findLast(message => message.role === "user")!.content;
       const phase = prompt.includes("Write the final answer") ? "final" : prompt.includes("Previous round") ? "critique" : "proposal";
       const text = options.empty ? "" : `${body.model} ${phase}: use SQLite with verified backups.`;
       const chunk = (delta: Record<string, unknown>, finish_reason: string | null = null) => `data: ${JSON.stringify({ id: "mock", object: "chat.completion.chunk", created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
+      if (options.toolCalls && body.tools?.some(tool => tool.function.name === "read") && (options.toolCalls === "always" || !body.messages.some(message => message.role === "tool"))) {
+        return new Response(chunk({ role: "assistant", content: "I will inspect the project." }) + chunk({ tool_calls: [{ index: 0, id: `call-${chats.length}`, type: "function", function: { name: "read", arguments: JSON.stringify({ path: "package.json" }) } }] }) + chunk({}, "tool_calls") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+      }
       return new Response(chunk({ role: "assistant", content: text.slice(0, 12) }) + chunk({ content: text.slice(12) }) + chunk({}, options.truncateFinal && phase === "final" ? "length" : "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
     },
   });
@@ -314,4 +327,32 @@ test("final header and Enter copy the latest completed answer without changing b
     copy.mockRestore();
     mock.server.stop(true);
   }
+});
+
+const toolLoopTest = process.platform === "linux" && Bun.which("bwrap") ? test : test.skip;
+toolLoopTest("LLMs receive only enabled tools, resume after results, and send every tool step to Laya", async () => {
+  const mock = mockServers({ toolCalls: "once" });
+  const events: DebateEvent[] = [];
+  try {
+    mock.config.llms[0]!.tools = ["read"];
+    const reply = await runDebate(mock.config, "Inspect the project", event => events.push(event));
+    expect(reply.text).toContain("SQLite");
+    expect(mock.chats).toHaveLength(9);
+    expect(mock.decisions).toHaveLength(11);
+    expect(events.filter(event => event.type === "tool" && event.status === "done")).toHaveLength(2);
+    expect(events.filter(event => event.type === "judged" && event.reply.step === 1)).toHaveLength(2);
+    for (const chat of mock.chats) {
+      expect(chat.tools?.map(tool => tool.function.name) ?? []).toEqual(chat.model === "Builder" ? ["read"] : []);
+    }
+    expect(mock.chats.some(chat => chat.messages.some(message => message.role === "tool" && message.content.includes('"name": "convents"')))).toBe(true);
+  } finally { mock.server.stop(true); }
+});
+
+toolLoopTest("tool loops stop after five model steps", async () => {
+  const mock = mockServers({ toolCalls: "always" });
+  try {
+    mock.config.llms[0]!.tools = ["read"];
+    await expect(runDebate(mock.config, "Inspect the project")).rejects.toThrow("tool step limit");
+    expect(mock.chats.filter(chat => chat.model === "Builder")).toHaveLength(5);
+  } finally { mock.server.stop(true); }
 });

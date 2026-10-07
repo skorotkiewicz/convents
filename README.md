@@ -44,6 +44,35 @@ Store credentials in environment variables or `.env`, which Bun loads automatica
 
 `decision.url` is the **exact POST endpoint**. Convents uses the typed `score`, `noul`, and `choice` requests from `example.md`, not a chat completion request. It validates Laya's response types and numeric ranges.
 
+## Tools
+
+Each `[[llms]]` seat can enable its own tools. The configs include this commented example:
+
+```toml
+# tools = ["write", "edit", "read", "bash", "websearch"]
+```
+
+Uncomment it or choose a smaller list, such as `tools = ["read", "websearch"]`. Tools default to disabled. Unknown names and duplicates are configuration errors. The provider and model must support tool calling.
+
+- `read` reads UTF-8 files up to 64 KiB or lists directories.
+- `write` creates or atomically replaces files up to 128 KiB.
+- `edit` replaces one exact `old_text` match with `new_text`. Missing or ambiguous matches leave the file unchanged. The file and result must fit 128 KiB.
+- `bash` runs commands for up to 30 seconds, with 64 KiB of output per stream.
+- `websearch` returns up to five DuckDuckGo titles, links, and snippets. It never opens result links. DDG rate limits and CAPTCHA blocks appear as tool errors.
+
+Filesystem tools and bash require **Linux x64 or arm64, bubblewrap, and enabled unprivileged user namespaces**. Install `bubblewrap` through your distribution's package manager. If the sandbox cannot start, these tools do not run. There is no unsandboxed fallback.
+
+The sandbox mounts the directory where you launched Convents at `/workspace`. File-tool paths must be relative to it. Bash shares that host directory, with read-only system binaries and libraries plus private temporary storage. Other host directories and processes are not exposed. The sandbox clears the inherited environment and blocks network sockets, including Unix sockets. Web search uses a separate request to a fixed DDG endpoint, with redirects disabled.
+
+All seats share the same working directory. Changes persist. Enable write, edit, and bash only for models you trust, since bash can also remove project files. Files inside the working directory, including `.env` files, are accessible to enabled tools and their contents can reach your LLM providers. Use a separate project directory rather than the Convents source checkout when you want models to edit another project:
+
+```sh
+cd /path/to/project
+bun /path/to/convents/index.ts --config /path/to/config.toml
+```
+
+Each response permits at most five model steps. Tool activity appears in the TUI and CLI. Laya rates tool-request responses as well as the completed answer. The sandbox limits runtime and output, but it is not a CPU or memory quota.
+
 ## Flow and controls
 
 1. All seats start independent proposals together. Each completed response goes to Laya for quality (0 to 3) and readiness (0 to 1) ratings.

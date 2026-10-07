@@ -92,12 +92,24 @@ export function mountTui(renderer: CliRenderer, config: Config) {
       log(`R${event.round}: ${event.name} leads (${(event.confidence * 100).toFixed(0)}% confidence). ${event.round < 2 ? "Peer critique next." : event.ready ? "Ready to synthesize." : event.lastRound ? "Round limit: synthesizing with uncertainty." : "Debate continues."}`, colors.accent);
       return;
     }
+    if (event.type === "tool") {
+      const seat = seats.get(event.name)!;
+      seat.state = event.status === "running" ? `tool ${event.tool}` : "working";
+      log(`${event.name} / ${event.tool}: ${event.status}${event.message ? ` / ${event.message}` : ""}`, event.status === "error" ? colors.error : colors.accent);
+      refreshOverview();
+      return;
+    }
     if (event.type === "judged") {
       const { reply } = event;
       const seat = seats.get(reply.name)!;
-      seat.state = "judged";
-      seat.label.content = `${reply.phase} | ${rating(reply)}`;
-      log(`${reply.name} / ${reply.phase} R${reply.round}: ${rating(reply)}`, colors.good);
+      seat.state = reply.step ? "continuing" : "judged";
+      if (!reply.step && reply.phase === "final" && seat.current) {
+        seat.buffer = clean(reply.text);
+        seat.current.content = seat.buffer;
+      }
+      const phase = `${reply.phase}${reply.step ? ` step ${reply.step}` : ""}`;
+      seat.label.content = `${phase} | ${rating(reply)}`;
+      log(`${reply.name} / ${phase} R${reply.round}: ${rating(reply)}`, colors.good);
       refreshOverview();
       return;
     }

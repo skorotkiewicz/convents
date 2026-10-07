@@ -19,6 +19,7 @@ readiness_threshold = 0.8
 # readiness_threshold = 0.8
 
 [[llms]]
+# tools = ["write", "edit", "read", "bash", "websearch"]
 name = "Builder"
 base_url = "https://openrouter.ai/api/v1"
 model = "poolside/laguna-s-2.1:free"
@@ -27,6 +28,7 @@ api_key_env = "OPENROUTER_API_KEY"
 extra_body = { chat_template_kwargs = { enable_thinking = false } }
 
 [[llms]]
+# tools = ["write", "edit", "read", "bash", "websearch"]
 name = "Skeptic"
 base_url = "http://127.0.0.1:8888/v1"
 model = "gemma-4-E2B-it"
@@ -34,6 +36,7 @@ role = "Challenge assumptions, find failure cases, and propose concrete correcti
 extra_body = { chat_template_kwargs = { enable_thinking = false } }
 
 [[llms]]
+# tools = ["write", "edit", "read", "bash", "websearch"]
 name = "Reviewer"
 base_url = "https://openrouter.ai/api/v1"
 model = "nvidia/nemotron-3-ultra-550b-a55b:free"

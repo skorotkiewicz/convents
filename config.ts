@@ -1,8 +1,11 @@
+export const TOOL_NAMES = ["write", "edit", "read", "bash", "websearch"] as const;
+export type ToolName = typeof TOOL_NAMES[number];
 export type Endpoint = { model: string; api_key_env?: string };
 export type Participant = Endpoint & {
   name: string;
   base_url: string;
   role: string;
+  tools: ToolName[];
   extra_body?: Record<string, unknown>;
 };
 export type Config = {
@@ -62,9 +65,14 @@ export function parseConfig(source: string): Config {
   const llms = raw.llms.map((value, i): Participant => {
     const label = `llms[${i}]`;
     const item = table(value, label);
+    const tools = item.tools ?? [];
+    if (!Array.isArray(tools) || tools.some(name => !TOOL_NAMES.includes(name)) || new Set(tools).size !== tools.length) {
+      throw new Error(`${label}.tools must be a unique list of write, edit, read, bash, or websearch`);
+    }
     return {
       ...endpoint(item, label),
       name: text(item.name, `${label}.name`),
+      tools,
       base_url: url(item.base_url, `${label}.base_url`),
       role: item.role === undefined ? "Offer a practical solution and challenge weak assumptions." : text(item.role, `${label}.role`),
       extra_body: item.extra_body === undefined ? undefined : table(item.extra_body, `${label}.extra_body`),
