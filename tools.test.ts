@@ -37,6 +37,12 @@ sandboxTest("filesystem and bash tools cannot access host paths, symlink targets
   const parent = await mkdtemp(join(tmpdir(), "convents-tools-"));
   const root = join(parent, "project");
   await mkdir(root);
+  await Bun.write(join(root, "shared.txt"), "alpha beta");
+  await Promise.all([
+    runSandbox(root, ["/bin/bash", "-c", 'text=$(cat shared.txt); sleep 0.05; printf "%s" "${text/alpha/A}" > shared.txt'], signal()),
+    runSandbox(root, ["/bin/bash", "-c", 'text=$(cat shared.txt); sleep 0.05; printf "%s" "${text/beta/B}" > shared.txt'], signal()),
+  ]);
+  expect(await Bun.file(join(root, "shared.txt")).text()).toBe("A B");
   const outside = join(parent, "private.txt");
   await Bun.write(outside, "outside secret");
   await symlink(outside, join(root, "escape"));

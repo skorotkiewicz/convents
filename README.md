@@ -64,7 +64,7 @@ Filesystem tools and bash require **Linux x64 or arm64, bubblewrap, and enabled 
 
 The sandbox mounts the directory where you launched Convents at `/workspace`. File-tool paths must be relative to it. Bash shares that host directory, with read-only system binaries and libraries plus private temporary storage. Other host directories and processes are not exposed. The sandbox clears the inherited environment and blocks network sockets, including Unix sockets. Web search uses a separate request to a fixed DDG endpoint, with redirects disabled.
 
-All seats share the same working directory. Changes persist. Enable write, edit, and bash only for models you trust, since bash can also remove project files. Files inside the working directory, including `.env` files, are accessible to enabled tools and their contents can reach your LLM providers. Use a separate project directory rather than the Convents source checkout when you want models to edit another project:
+All seats share the same working directory. Filesystem tool calls run one at a time to avoid competing in-flight edits. Changes persist. Enable write, edit, and bash only for models you trust, since bash can also remove project files. Files inside the working directory, including `.env` files, are accessible to enabled tools and their contents can reach your LLM providers. Use a separate project directory rather than the Convents source checkout when you want models to edit another project:
 
 ```sh
 cd /path/to/project

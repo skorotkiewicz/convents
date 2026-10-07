@@ -122,7 +122,15 @@ async function socketFilter() {
   return path;
 }
 
-export async function runSandbox(cwd: string, command: string[], signal: AbortSignal, timeoutMs = 30000, input?: string) {
+// ponytail: one filesystem queue across seats; use per-project locks if multi-project throughput matters.
+let filesystemQueue = Promise.resolve();
+export function runSandbox(...args: Parameters<typeof executeSandbox>) {
+  const next = filesystemQueue.then(() => executeSandbox(...args));
+  filesystemQueue = next.then(() => {}, () => {});
+  return next;
+}
+
+async function executeSandbox(cwd: string, command: string[], signal: AbortSignal, timeoutMs = 30000, input?: string) {
   signal.throwIfAborted();
   const bwrap = Bun.which("bwrap");
   if (process.platform !== "linux" || !bwrap) throw new Error("Sandboxed tools require Linux and bubblewrap. No unsandboxed fallback is allowed.");
@@ -140,7 +148,7 @@ export async function runSandbox(cwd: string, command: string[], signal: AbortSi
       "--remount-ro", "/", "--cap-drop", "ALL", "--", ...command,
     ], { env: { PATH: "/usr/bin:/bin" }, stdio: [input === undefined ? "ignore" : Buffer.from(input), "pipe", "pipe", filter.fd] });
     const active = AbortSignal.any([signal, AbortSignal.timeout(Math.min(timeoutMs, 30000))]);
-    const kill = () => { child.kill("SIGKILL"); };
+    const kill = () => { if (child.exitCode === null) child.kill("SIGKILL"); };
     active.addEventListener("abort", kill, { once: true });
     try {
       active.throwIfAborted();
